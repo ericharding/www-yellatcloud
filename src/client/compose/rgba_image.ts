@@ -5,6 +5,16 @@ export type RgbaImage = {
   readonly data: Uint8ClampedArray;
 };
 
+export const solidImage = (
+  width: number,
+  height: number,
+  [r, g, b, a]: readonly [number, number, number, number],
+): RgbaImage => ({
+  width,
+  height,
+  data: Uint8ClampedArray.from({ length: width * height * 4 }, (_, i) => [r, g, b, a][i % 4] ?? 0),
+});
+
 type AxisWeight = { readonly index: number; readonly weight: number };
 
 /** For each destination cell, the source cells it covers and their fractional overlap. */

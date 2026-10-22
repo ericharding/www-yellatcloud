@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { blendOver, resizeArea } from './rgba_image.ts';
-import { pixelAt, solidImage } from './test_support.ts';
+import { blendOver, resizeArea, solidImage } from './rgba_image.ts';
+import { pixelAt } from './test_support.ts';
 
 describe('resizeArea', () => {
   it('averages source pixels covered by each destination pixel', () => {

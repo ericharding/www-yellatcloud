@@ -1,69 +1,91 @@
-import { GIFEncoder, nearestColorIndex, quantize, type Palette } from 'gifenc';
-import { decompressFrames, parseGIF, type ParsedFrame } from 'gifuct-js';
-import { firstFrameRange } from './gif_bytes.ts';
+import { nearestColorIndex, quantize, type Palette } from 'gifenc';
+import { encodeAnimation, type IndexedFrame } from './gif_writer.ts';
 import { logoBoxes } from './layout.ts';
+import { oldManMask } from './old_man_mask.ts';
 import { overlayLogo } from './overlay_logo.ts';
-import type { RgbaImage } from './rgba_image.ts';
+import { solidImage, type RgbaImage } from './rgba_image.ts';
+import { decodeTemplateFrames, type TemplateFrame } from './template_frames.ts';
 
-const firstFrameImage = (templateGif: Uint8Array): { image: RgbaImage; frame: ParsedFrame } => {
-  const gif = parseGIF(templateGif.slice().buffer);
-  const [frame] = decompressFrames(gif, true);
-  if (frame === undefined) {
-    throw new Error('Template GIF has no frames');
-  }
-  const { width, height, top, left } = frame.dims;
-  if (left !== 0 || top !== 0 || width !== gif.lsd.width || height !== gif.lsd.height) {
-    throw new Error('Template GIF frame 0 must cover the whole canvas');
-  }
-  return { image: { width, height, data: frame.patch }, frame };
+type Rgb = readonly [number, number, number];
+
+const WHITE: Rgb = [255, 255, 255];
+const PALETTE_SIZE = 256;
+
+const rgbAt = ({ data }: RgbaImage, pixel: number): Rgb => [
+  data[pixel * 4] ?? 0,
+  data[pixel * 4 + 1] ?? 0,
+  data[pixel * 4 + 2] ?? 0,
+];
+
+const rgbKey = ([r, g, b]: Rgb): number => (r << 16) | (g << 8) | b;
+
+type MaskedFrame = { readonly frame: TemplateFrame; readonly mask: Uint8Array };
+
+/** The distinct colors of the old man's pixels over all frames, which must survive exactly. */
+const oldManColors = (frames: readonly MaskedFrame[]): readonly Rgb[] => {
+  const byKey = new Map<number, Rgb>();
+  frames.forEach(({ frame, mask }) => {
+    mask.forEach((isMan, pixel) => {
+      const color = rgbAt(frame.image, pixel);
+      if (isMan === 1) {
+        byKey.set(rgbKey(color), color);
+      }
+    });
+  });
+  return [...byKey.values()];
 };
 
-const WHITE = [255, 255, 255] as const;
+/** Old man colors exactly, then whatever colors the logo layer needs, then an unused transparent entry. */
+const buildPalette = (manColors: readonly Rgb[], logoLayer: RgbaImage): Palette => {
+  const logoColors = PALETTE_SIZE - manColors.length - 1;
+  if (logoColors < 2) {
+    throw new Error('Template GIF has too many colors to add a logo');
+  }
+  return [...manColors, ...quantize(logoLayer.data, logoColors - 1), WHITE, [0, 0, 0]];
+};
 
-const indexPixels = (image: RgbaImage, palette: Palette): Uint8Array =>
-  Uint8Array.from({ length: image.width * image.height }, (_, i) =>
-    nearestColorIndex(palette, [
-      image.data[i * 4] ?? 0,
-      image.data[i * 4 + 1] ?? 0,
-      image.data[i * 4 + 2] ?? 0,
-    ]),
+/** The static logo layer: every pixel mapped to its nearest palette color, with no dithering. */
+const logoIndices = (logoLayer: RgbaImage, palette: Palette): Uint8Array =>
+  Uint8Array.from({ length: logoLayer.width * logoLayer.height }, (_, pixel) =>
+    nearestColorIndex(palette.slice(0, -1), rgbAt(logoLayer, pixel)),
   );
 
-/** Encodes one full-canvas frame with its own palette: graphic control, descriptor, pixels. */
-const encodeFrame = (image: RgbaImage, delayMs: number, disposal: number): Uint8Array => {
-  // Reserve an exact white so the background does not drift to 254, and map
-  // pixels exactly (applyPalette's 565 bin cache would merge 254 into 255).
-  const palette = [...quantize(image.data, 255), WHITE];
-  const encoder = GIFEncoder({ auto: false });
-  encoder.writeFrame(indexPixels(image, palette), image.width, image.height, {
-    palette,
-    delay: delayMs,
-    dispose: disposal,
-  });
-  return encoder.bytes();
-};
-
-const concat = (...parts: readonly Uint8Array[]): Uint8Array => {
-  const out = new Uint8Array(parts.reduce((total, part) => total + part.length, 0));
-  parts.reduce((offset, part) => {
-    out.set(part, offset);
-    return offset + part.length;
-  }, 0);
-  return out;
-};
+/** One displayed frame: the old man's own pixels over the logo layer. */
+const drawFrame = (
+  { frame, mask }: MaskedFrame,
+  logoLayerIndices: Uint8Array,
+  indexByColor: ReadonlyMap<number, number>,
+): IndexedFrame => ({
+  delayMs: frame.delayMs,
+  indices: Uint8Array.from(logoLayerIndices, (logoIndex, pixel) =>
+    mask[pixel] === 1 ? (indexByColor.get(rgbKey(rgbAt(frame.image, pixel))) ?? logoIndex) : logoIndex,
+  ),
+});
 
 /**
- * Blends the logo into frame 0 of the template and re-quantizes that frame
- * only. Header, loop extension and every later frame are copied byte for byte,
- * so delays, disposal, frame rectangles and transparency are untouched.
+ * Draws the logo into the top-left of the animated template with the old man
+ * on top of it. Every frame is rebuilt as the logo layer plus the man's exact
+ * pixels (found by flood-filling the white background from the border), then
+ * stored as the changed rectangle against the previous frame, so the static
+ * logo costs nothing after frame 0.
  */
 export const composeGif = (logo: RgbaImage, templateGif: Uint8Array): Uint8Array => {
-  const { image, frame } = firstFrameImage(templateGif);
-  const composed = overlayLogo(image, logo, logoBoxes.gif);
-  const { start, end } = firstFrameRange(templateGif);
-  return concat(
-    templateGif.subarray(0, start),
-    encodeFrame(composed, frame.delay, frame.disposalType),
-    templateGif.subarray(end),
-  );
+  const decoded = decodeTemplateFrames(templateGif);
+  const [first] = decoded;
+  if (first === undefined) {
+    throw new Error('Template GIF has no frames');
+  }
+  const { width, height } = first.image;
+  const frames = decoded.map((frame) => ({ frame, mask: oldManMask(frame.image) }));
+  const logoLayer = overlayLogo(solidImage(width, height, [...WHITE, 255]), logo, logoBoxes.gif);
+  const palette = buildPalette(oldManColors(frames), logoLayer);
+  const indexByColor = new Map(palette.slice(0, -1).map((color, index) => [rgbKey(color), index] as const));
+  const layerIndices = logoIndices(logoLayer, palette);
+  return encodeAnimation({
+    width,
+    height,
+    palette,
+    transparentIndex: palette.length - 1,
+    frames: frames.map((masked) => drawFrame(masked, layerIndices, indexByColor)),
+  });
 };

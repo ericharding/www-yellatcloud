@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { GIF_SIZE, PNG_SIZE } from '../../shared/constants.ts';
 import { fitImage, logoBoxes } from './layout.ts';
 
 const box = { x: 10, y: 20, width: 40, height: 20 };
@@ -22,11 +23,18 @@ describe('fitImage', () => {
 });
 
 describe('logoBoxes', () => {
-  it('keeps the gif logo above the animated band (y17)', () => {
-    expect(logoBoxes.gif.y + logoBoxes.gif.height).toBeLessThanOrEqual(17);
+  it('is the top-left quadrant of each image', () => {
+    expect(logoBoxes.png).toEqual({ x: 0, y: 0, width: PNG_SIZE / 2, height: PNG_SIZE / 2 });
+    expect(logoBoxes.gif).toEqual({ x: 0, y: 0, width: GIF_SIZE / 2, height: GIF_SIZE / 2 });
   });
 
-  it('keeps the png logo clear of the fist (y55) and hair (x85)', () => {
-    expect(logoBoxes.png.y + logoBoxes.png.height).toBeLessThanOrEqual(55);
+  it('puts the gif box at exactly half the png box', () => {
+    expect(logoBoxes.gif.width * 2).toBe(logoBoxes.png.width);
+    expect(logoBoxes.gif.height * 2).toBe(logoBoxes.png.height);
+  });
+
+  it('lets a square logo fill its whole box', () => {
+    expect(fitImage(500, 500, logoBoxes.png)).toEqual(logoBoxes.png);
+    expect(fitImage(500, 500, logoBoxes.gif)).toEqual(logoBoxes.gif);
   });
 });

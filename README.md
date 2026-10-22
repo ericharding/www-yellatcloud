@@ -10,6 +10,13 @@ template; the server stores shared images and serves the gallery.
 - `src/shared` - types and constants shared by client and server
 - `public/templates` - template images (originals in `template/`)
 
+## Composition
+
+The logo is fitted into the top-left quadrant of each template (64x64 in the 128x128 PNG, 32x32 in the
+64x64 GIF) and the old man is always drawn on top of it. For the GIF every frame is rebuilt as the logo
+plus the man's own pixels (white background flood-filled from the border), then stored as the changed
+rectangle against the previous frame.
+
 ## Commands
 
 - `pnpm dev` - server (`node --watch`, port 3000) and Vite dev server together; open the Vite URL

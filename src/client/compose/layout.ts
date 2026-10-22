@@ -8,15 +8,13 @@ export type Rect = {
 };
 
 /**
- * Where the logo goes, in template pixels: the free top-left corner, left of
- * the hair (x85 / x42 in GIF) and above the fist (y55 / y27 in GIF). The GIF
- * box is the PNG box at half scale.
+ * Where the logo goes, in template pixels: the top-left quadrant. It may
+ * overlap the old man, who is always drawn on top of it. The GIF box is the
+ * PNG box at half scale.
  */
 export const logoBoxes: Readonly<Record<ImageKind, Rect>> = {
-  png: { x: 2, y: 2, width: 76, height: 30 },
-  // The animated frames only repaint y17..57, so the box ends at y16 and the
-  // logo baked into frame 0 is never overdrawn.
-  gif: { x: 1, y: 1, width: 38, height: 15 },
+  png: { x: 0, y: 0, width: 64, height: 64 },
+  gif: { x: 0, y: 0, width: 32, height: 32 },
 };
 
 /** Largest size that fits `box` with the source aspect ratio, centered in it. */

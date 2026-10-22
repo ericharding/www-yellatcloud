@@ -6,10 +6,14 @@ declare module 'gifenc' {
     delay?: number;
     dispose?: number;
     first?: boolean;
+    transparent?: boolean;
+    transparentIndex?: number;
   };
 
   export type Encoder = {
     writeFrame(index: Uint8Array, width: number, height: number, options?: FrameOptions): void;
+    writeHeader(): void;
+    finish(): void;
     bytes(): Uint8Array;
   };
 
