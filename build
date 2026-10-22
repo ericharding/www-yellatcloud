@@ -1,0 +1,22 @@
+#!/usr/bin/env bash
+# Build registry.digitalsorcery.net/yellat:<version> (+ :latest); pass --push to also push.
+set -euo pipefail
+
+cd "$(dirname "$0")"
+
+IMAGE="registry.digitalsorcery.net/yellat"
+VERSION="$(sed -nE 's/^  "version": "([^"]+)".*/\1/p' package.json)"
+if [[ -z "${VERSION}" ]]; then
+  echo "error: could not read version from package.json" >&2
+  exit 1
+fi
+
+echo "==> Building ${IMAGE}:${VERSION}"
+podman build --format docker -f Containerfile -t "${IMAGE}:${VERSION}" -t "${IMAGE}:latest" .
+
+if [[ "${1:-}" == "--push" ]]; then
+  podman push "${IMAGE}:${VERSION}"
+  podman push "${IMAGE}:latest"
+fi
+
+echo "==> Done: ${IMAGE}:${VERSION}"
