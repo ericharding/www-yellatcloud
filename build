@@ -1,22 +1,21 @@
 #!/usr/bin/env bash
-# Build registry.digitalsorcery.net/yellat:<version> (+ :latest); pass --push to also push.
+# Build the next patch version of the image, push it (+ :latest) to the
+# registry, and record the new version in package.json. Usage: ./build
 set -euo pipefail
 
-cd "$(dirname "$0")"
+cd "$(dirname "$(realpath "${BASH_SOURCE[0]}")")"
 
-IMAGE="registry.digitalsorcery.net/yellat"
-VERSION="$(sed -nE 's/^  "version": "([^"]+)".*/\1/p' package.json)"
-if [[ -z "${VERSION}" ]]; then
+IMAGE=registry.digitalsorcery.net/yellat
+CURRENT="$(sed -nE 's/^  "version": "([^"]+)".*/\1/p' package.json)"
+if [[ -z "${CURRENT}" ]]; then
   echo "error: could not read version from package.json" >&2
   exit 1
 fi
+NEXT="${CURRENT%.*}.$((${CURRENT##*.} + 1))"
 
-echo "==> Building ${IMAGE}:${VERSION}"
-podman build --format docker -f Containerfile -t "${IMAGE}:${VERSION}" -t "${IMAGE}:latest" .
+podman build --pull=always --format docker -f Containerfile -t "$IMAGE:$NEXT" -t "$IMAGE:latest" .
+podman push "$IMAGE:$NEXT"
+podman push "$IMAGE:latest"
+sed -i -E "s/^(  \"version\": \")[^\"]+/\1${NEXT}/" package.json
 
-if [[ "${1:-}" == "--push" ]]; then
-  podman push "${IMAGE}:${VERSION}"
-  podman push "${IMAGE}:latest"
-fi
-
-echo "==> Done: ${IMAGE}:${VERSION}"
+echo "Pushed $IMAGE:$NEXT"
